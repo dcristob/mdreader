@@ -1,5 +1,4 @@
 use crate::file;
-use crate::links;
 use crate::markdown::MarkdownContent;
 use crate::search::SearchState;
 use crate::theme::Theme;
@@ -17,6 +16,8 @@ pub struct MdReaderApp {
     pub zoom: f32,
     pub search: SearchState,
     pub show_search: bool,
+    pub history: Vec<PathBuf>,
+    pub history_pos: usize,
 }
 
 impl Default for MdReaderApp {
@@ -31,6 +32,8 @@ impl Default for MdReaderApp {
             zoom: 1.0,
             search: SearchState::default(),
             show_search: false,
+            history: Vec::new(),
+            history_pos: 0,
         }
     }
 }
@@ -47,6 +50,8 @@ impl MdReaderApp {
             zoom: 1.0,
             search: SearchState::default(),
             show_search: false,
+            history: Vec::new(),
+            history_pos: 0,
         };
 
         if let Some(path) = file {
@@ -57,6 +62,29 @@ impl MdReaderApp {
     }
 
     fn load_file(&mut self, path: PathBuf) {
+        if self.history_pos < self.history.len().saturating_sub(1) {
+            self.history.truncate(self.history_pos + 1);
+        }
+
+        self.current_file = Some(path.clone());
+        self.history.push(path.clone());
+        self.history_pos = self.history.len() - 1;
+
+        match file::load_file(&path) {
+            Ok(content) => {
+                self.markdown = Some(crate::markdown::parse(&content));
+                self.content = Some(content);
+                self.error = None;
+            }
+            Err(e) => {
+                self.error = Some(e.to_string());
+                self.content = None;
+                self.markdown = None;
+            }
+        }
+    }
+
+    fn load_file_without_history(&mut self, path: PathBuf) {
         self.current_file = Some(path.clone());
         match file::load_file(&path) {
             Ok(content) => {
@@ -72,9 +100,22 @@ impl MdReaderApp {
         }
     }
 
-    fn handle_link(&self, url: &str) {
-        if let Err(e) = links::open_link(url) {
-            eprintln!("Failed to open link: {}", e);
+    fn handle_link(&mut self, url: &str) {
+        use crate::links::{classify_link, LinkType};
+
+        match classify_link(url, self.current_file.as_deref()) {
+            LinkType::External(url) => {
+                if let Err(e) = crate::links::open_link(&url) {
+                    self.error = Some(format!("Failed to open link: {}", e));
+                }
+            }
+            LinkType::Internal(path) => {
+                if path.exists() {
+                    self.load_file(path);
+                } else {
+                    self.error = Some(format!("File not found: {}", path.display()));
+                }
+            }
         }
     }
 }
@@ -97,6 +138,21 @@ impl eframe::App for MdReaderApp {
 
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
+                if ui.button("◀").clicked() && self.history_pos > 0 {
+                    self.history_pos -= 1;
+                    if let Some(path) = self.history.get(self.history_pos).cloned() {
+                        self.load_file_without_history(path);
+                    }
+                }
+                if ui.button("▶").clicked()
+                    && self.history_pos < self.history.len().saturating_sub(1)
+                {
+                    self.history_pos += 1;
+                    if let Some(path) = self.history.get(self.history_pos).cloned() {
+                        self.load_file_without_history(path);
+                    }
+                }
+                ui.separator();
                 if ui.button("Open File").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Markdown", &["md", "markdown"])
@@ -125,21 +181,28 @@ impl eframe::App for MdReaderApp {
             });
         });
 
-        if let Some(markdown) = &self.markdown {
-            if !markdown.links.is_empty() {
-                egui::TopBottomPanel::top("links_bar").show(ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("Links:");
-                        for link in &markdown.links {
-                            if link.url.starts_with("http://") || link.url.starts_with("https://") {
-                                if ui.button(&link.text).clicked() {
-                                    self.handle_link(&link.url);
-                                }
-                            }
+        let links_to_show: Vec<(String, String)> = self
+            .markdown
+            .as_ref()
+            .map(|m| {
+                m.links
+                    .iter()
+                    .map(|l| (l.text.clone(), l.url.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if !links_to_show.is_empty() {
+            egui::TopBottomPanel::top("links_bar").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Links:");
+                    for (text, url) in &links_to_show {
+                        if ui.button(text).clicked() {
+                            self.handle_link(url);
                         }
-                    });
+                    }
                 });
-            }
+            });
         }
 
         if self.show_search {
