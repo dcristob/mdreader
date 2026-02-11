@@ -247,10 +247,12 @@ impl eframe::App for MdReaderApp {
                         .inner_margin(egui::Margin::same(12.0));
 
                     frame.show(ui, |ui| {
-                        ui.set_min_width((screen_width * 0.85).min(1200.0));
+                        // Use max_width to prevent overflow, with padding from edges
+                        let max_width = (screen_width - 40.0).max(400.0);
+                        ui.set_max_width(max_width);
 
                         ui.horizontal_centered(|ui| {
-                            ui.add_space(16.0);
+                            ui.add_space(12.0);
 
                             if self.show_search {
                                 // Search Bar Mode - all vertically centered
@@ -414,7 +416,7 @@ impl eframe::App for MdReaderApp {
                                 );
                             }
 
-                            ui.add_space(16.0);
+                            ui.add_space(12.0);
                         });
                     });
                 });
