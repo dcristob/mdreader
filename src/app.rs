@@ -269,5 +269,23 @@ impl eframe::App for MdReaderApp {
                 ui.label("Open a markdown file to begin");
             }
         });
+
+        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                if let Some(ref path) = self.current_file {
+                    ui.label(format!("📄 {}", path.display()));
+                } else {
+                    ui.label("No file open");
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(ref content) = self.content {
+                        let lines = content.lines().count();
+                        let chars = content.chars().count();
+                        ui.label(format!("{} lines, {} chars", lines, chars));
+                    }
+                });
+            });
+        });
     }
 }
