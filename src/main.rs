@@ -1,5 +1,6 @@
 mod app;
 mod args;
+mod file;
 
 use app::MdReaderApp;
 use args::Args;
