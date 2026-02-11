@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 eframe = "0.29"
 egui = "0.29"
-egui_commonmark = "0.19"
+egui_commonmark = "0.18"
 pulldown-cmark = "0.12"
 pulldown-cmark-to-cmark = "13.0"
 syntect = "5.2"

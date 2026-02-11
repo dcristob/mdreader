@@ -1,6 +1,7 @@
 use crate::file;
 use crate::markdown::MarkdownContent;
 use eframe::egui;
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use std::path::PathBuf;
 
 pub struct MdReaderApp {
@@ -8,6 +9,7 @@ pub struct MdReaderApp {
     pub content: Option<String>,
     pub error: Option<String>,
     pub markdown: Option<MarkdownContent>,
+    pub cache: CommonMarkCache,
 }
 
 impl Default for MdReaderApp {
@@ -17,6 +19,7 @@ impl Default for MdReaderApp {
             content: None,
             error: None,
             markdown: None,
+            cache: CommonMarkCache::default(),
         }
     }
 }
@@ -28,6 +31,7 @@ impl MdReaderApp {
             content: None,
             error: None,
             markdown: None,
+            cache: CommonMarkCache::default(),
         };
 
         if let Some(path) = file {
@@ -74,7 +78,7 @@ impl eframe::App for MdReaderApp {
             if let Some(error) = &self.error {
                 ui.colored_label(egui::Color32::RED, format!("Error: {}", error));
             } else if let Some(content) = &self.content {
-                ui.monospace(content);
+                CommonMarkViewer::new().show(ui, &mut self.cache, content);
             } else {
                 ui.label("Open a markdown file to begin");
             }
