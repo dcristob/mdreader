@@ -21,6 +21,7 @@ pub struct MdReaderApp {
     pub history: Vec<PathBuf>,
     pub history_pos: usize,
     pub file_watcher: Option<FileWatcher>,
+    zoom_changed: bool,
 }
 
 impl Default for MdReaderApp {
@@ -32,12 +33,13 @@ impl Default for MdReaderApp {
             markdown: None,
             cache: CommonMarkCache::default(),
             theme: Theme::default(),
-            zoom: 1.0,
+            zoom: 1.2,
             search: SearchState::default(),
             show_search: false,
             history: Vec::new(),
             history_pos: 0,
             file_watcher: None,
+            zoom_changed: true,
         }
     }
 }
@@ -51,12 +53,13 @@ impl MdReaderApp {
             markdown: None,
             cache: CommonMarkCache::default(),
             theme: Theme::default(),
-            zoom: 1.0,
+            zoom: 1.2,
             search: SearchState::default(),
             show_search: false,
             history: Vec::new(),
             history_pos: 0,
             file_watcher: None,
+            zoom_changed: true,
         };
 
         if let Some(path) = file {
@@ -128,6 +131,19 @@ impl MdReaderApp {
             }
         }
     }
+
+    fn apply_zoom(&mut self, ctx: &egui::Context) {
+        if self.zoom_changed {
+            let mut style = (*ctx.style()).clone();
+            style.text_styles = style
+                .text_styles
+                .into_iter()
+                .map(|(id, font)| (id, egui::FontId::new(font.size * self.zoom, font.family)))
+                .collect();
+            ctx.set_style(style);
+            self.zoom_changed = false;
+        }
+    }
 }
 
 impl eframe::App for MdReaderApp {
@@ -154,60 +170,130 @@ impl eframe::App for MdReaderApp {
         }
 
         self.theme.apply(ctx);
+        self.apply_zoom(ctx);
 
-        let mut style = (*ctx.style()).clone();
-        style.text_styles = style
-            .text_styles
-            .into_iter()
-            .map(|(id, font)| (id, egui::FontId::new(font.size * self.zoom, font.family)))
-            .collect();
-        ctx.set_style(style);
-
+        // Main toolbar with grouped buttons and professional styling
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
-                if ui.button("◀").clicked() && self.history_pos > 0 {
-                    self.history_pos -= 1;
-                    if let Some(path) = self.history.get(self.history_pos).cloned() {
-                        self.load_file_without_history(path);
-                    }
-                }
-                if ui.button("▶").clicked()
-                    && self.history_pos < self.history.len().saturating_sub(1)
-                {
-                    self.history_pos += 1;
-                    if let Some(path) = self.history.get(self.history_pos).cloned() {
-                        self.load_file_without_history(path);
-                    }
-                }
-                ui.separator();
-                if ui.button("Open File").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("Markdown", &["md", "markdown"])
-                        .add_filter("All Files", &["*"])
-                        .pick_file()
-                    {
-                        self.load_file(path);
-                    }
-                }
-                ui.separator();
-                if ui.button(format!("Theme: {}", self.theme.name())).clicked() {
-                    self.theme.toggle();
-                }
-                ui.separator();
-                if ui.button("-").clicked() && self.zoom > 0.5 {
-                    self.zoom -= 0.1;
-                }
-                ui.label(format!("{:.0}%", self.zoom * 100.0));
-                if ui.button("+").clicked() && self.zoom < 3.0 {
-                    self.zoom += 0.1;
-                }
-                ui.separator();
-                if ui.button("Search").clicked() {
-                    self.show_search = !self.show_search;
-                }
+                ui.add_space(8.0);
+
+                // Navigation group
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.style_mut().spacing.button_padding = egui::vec2(10.0, 6.0);
+
+                        let back_enabled = self.history_pos > 0;
+                        let forward_enabled =
+                            self.history_pos < self.history.len().saturating_sub(1);
+
+                        if ui
+                            .add_enabled(back_enabled, egui::Button::new("◀ Back"))
+                            .clicked()
+                        {
+                            if self.history_pos > 0 {
+                                self.history_pos -= 1;
+                                if let Some(path) = self.history.get(self.history_pos).cloned() {
+                                    self.load_file_without_history(path);
+                                }
+                            }
+                        }
+
+                        if ui
+                            .add_enabled(forward_enabled, egui::Button::new("▶ Forward"))
+                            .clicked()
+                        {
+                            if self.history_pos < self.history.len().saturating_sub(1) {
+                                self.history_pos += 1;
+                                if let Some(path) = self.history.get(self.history_pos).cloned() {
+                                    self.load_file_without_history(path);
+                                }
+                            }
+                        }
+                    });
+                });
+
+                ui.add_space(12.0);
+
+                // File operations group
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.style_mut().spacing.button_padding = egui::vec2(10.0, 6.0);
+
+                        if ui.button("📂 Open File").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("Markdown", &["md", "markdown"])
+                                .add_filter("All Files", &["*"])
+                                .pick_file()
+                            {
+                                self.load_file(path);
+                            }
+                        }
+                    });
+                });
+
+                ui.add_space(12.0);
+
+                // View controls group
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.style_mut().spacing.button_padding = egui::vec2(10.0, 6.0);
+
+                        if ui.button(format!("🌓 {}", self.theme.name())).clicked() {
+                            self.theme.toggle();
+                        }
+
+                        ui.separator();
+
+                        // Zoom controls with proper debouncing
+                        let zoom_out_btn = ui.add_enabled(
+                            self.zoom > 0.6,
+                            egui::Button::new("−").min_size(egui::vec2(28.0, 0.0)),
+                        );
+                        if zoom_out_btn.clicked() {
+                            self.zoom = (self.zoom - 0.1).max(0.5);
+                            self.zoom_changed = true;
+                        }
+
+                        ui.label(format!("{:.0}%", self.zoom * 100.0))
+                            .on_hover_text("Current zoom level");
+
+                        let zoom_in_btn = ui.add_enabled(
+                            self.zoom < 2.9,
+                            egui::Button::new("+").min_size(egui::vec2(28.0, 0.0)),
+                        );
+                        if zoom_in_btn.clicked() {
+                            self.zoom = (self.zoom + 0.1).min(3.0);
+                            self.zoom_changed = true;
+                        }
+                    });
+                });
+
+                ui.add_space(12.0);
+
+                // Search group
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.style_mut().spacing.button_padding = egui::vec2(10.0, 6.0);
+
+                        let search_text = if self.show_search {
+                            "✕ Close Search"
+                        } else {
+                            "🔍 Search (Ctrl+F)"
+                        };
+
+                        if ui.button(search_text).clicked() {
+                            self.show_search = !self.show_search;
+                        }
+                    });
+                });
+
+                ui.add_space(8.0);
             });
+            ui.add_space(4.0);
         });
 
+        // Links bar
         let links_to_show: Vec<(String, String)> = self
             .markdown
             .as_ref()
@@ -222,6 +308,7 @@ impl eframe::App for MdReaderApp {
         if !links_to_show.is_empty() {
             egui::TopBottomPanel::top("links_bar").show(ctx, |ui| {
                 ui.horizontal(|ui| {
+                    ui.add_space(8.0);
                     ui.label("Links:");
                     for (text, url) in &links_to_show {
                         if ui.button(text).clicked() {
@@ -232,10 +319,13 @@ impl eframe::App for MdReaderApp {
             });
         }
 
+        // Search bar
         if self.show_search {
             egui::TopBottomPanel::top("search_bar").show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Find:");
+                    ui.add_space(8.0);
+                    ui.label("🔍 Find:");
+
                     let response = ui.text_edit_singleline(&mut self.search.query);
                     if response.changed() {
                         if let Some(content) = &self.content {
@@ -245,12 +335,15 @@ impl eframe::App for MdReaderApp {
 
                     ui.label(self.search.match_count());
 
-                    if ui.button("◀").clicked() && self.search.has_matches() {
-                        self.search.prev_match();
-                    }
-                    if ui.button("▶").clicked() && self.search.has_matches() {
-                        self.search.next_match();
-                    }
+                    ui.add_enabled_ui(self.search.has_matches(), |ui| {
+                        if ui.button("◀ Prev").clicked() {
+                            self.search.prev_match();
+                        }
+                        if ui.button("▶ Next").clicked() {
+                            self.search.next_match();
+                        }
+                    });
+
                     if ui.button("✕").clicked() {
                         self.show_search = false;
                     }
@@ -258,6 +351,7 @@ impl eframe::App for MdReaderApp {
             });
         }
 
+        // Main content area
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(error) = &self.error {
                 ui.colored_label(egui::Color32::RED, format!("Error: {}", error));
@@ -266,12 +360,21 @@ impl eframe::App for MdReaderApp {
                     CommonMarkViewer::new().show(ui, &mut self.cache, content);
                 });
             } else {
-                ui.label("Open a markdown file to begin");
+                ui.vertical_centered(|ui| {
+                    ui.add_space(100.0);
+                    ui.heading("Welcome to Markdown Viewer");
+                    ui.add_space(20.0);
+                    ui.label("Open a markdown file to begin");
+                    ui.add_space(10.0);
+                    ui.label("Use 📂 Open File or drag and drop a file");
+                });
             }
         });
 
+        // Status bar
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
+                ui.add_space(8.0);
                 if let Some(ref path) = self.current_file {
                     ui.label(format!("📄 {}", path.display()));
                 } else {
@@ -279,6 +382,7 @@ impl eframe::App for MdReaderApp {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(8.0);
                     if let Some(ref content) = self.content {
                         let lines = content.lines().count();
                         let chars = content.chars().count();

@@ -15,7 +15,10 @@ fn main() -> eframe::Result {
     let initial_app = MdReaderApp::new(args.file);
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([800.0, 600.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([900.0, 700.0])
+            .with_decorations(true)
+            .with_transparent(false),
         ..Default::default()
     };
 
