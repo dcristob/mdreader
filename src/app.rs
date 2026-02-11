@@ -15,13 +15,11 @@ pub struct MdReaderApp {
     pub markdown: Option<MarkdownContent>,
     pub cache: CommonMarkCache,
     pub theme: Theme,
-    pub zoom: f32,
     pub search: SearchState,
     pub show_search: bool,
     pub history: Vec<PathBuf>,
     pub history_pos: usize,
     pub file_watcher: Option<FileWatcher>,
-    zoom_changed: bool,
 }
 
 impl Default for MdReaderApp {
@@ -33,13 +31,11 @@ impl Default for MdReaderApp {
             markdown: None,
             cache: CommonMarkCache::default(),
             theme: Theme::default(),
-            zoom: 1.2,
             search: SearchState::default(),
             show_search: false,
             history: Vec::new(),
             history_pos: 0,
             file_watcher: None,
-            zoom_changed: true,
         }
     }
 }
@@ -53,13 +49,11 @@ impl MdReaderApp {
             markdown: None,
             cache: CommonMarkCache::default(),
             theme: Theme::default(),
-            zoom: 1.2,
             search: SearchState::default(),
             show_search: false,
             history: Vec::new(),
             history_pos: 0,
             file_watcher: None,
-            zoom_changed: true,
         };
 
         if let Some(path) = file {
@@ -131,19 +125,6 @@ impl MdReaderApp {
             }
         }
     }
-
-    fn apply_zoom(&mut self, ctx: &egui::Context) {
-        if self.zoom_changed {
-            let mut style = (*ctx.style()).clone();
-            style.text_styles = style
-                .text_styles
-                .into_iter()
-                .map(|(id, font)| (id, egui::FontId::new(font.size * self.zoom, font.family)))
-                .collect();
-            ctx.set_style(style);
-            self.zoom_changed = false;
-        }
-    }
 }
 
 impl eframe::App for MdReaderApp {
@@ -170,18 +151,17 @@ impl eframe::App for MdReaderApp {
         }
 
         self.theme.apply(ctx);
-        self.apply_zoom(ctx);
 
         // Main toolbar with grouped buttons and professional styling
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
-            ui.add_space(4.0);
+            ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.add_space(8.0);
+                ui.add_space(12.0);
 
                 // Navigation group
                 ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.style_mut().spacing.button_padding = egui::vec2(10.0, 6.0);
+                    ui.horizontal_centered(|ui| {
+                        ui.style_mut().spacing.button_padding = egui::vec2(12.0, 8.0);
 
                         let back_enabled = self.history_pos > 0;
                         let forward_enabled =
@@ -213,12 +193,12 @@ impl eframe::App for MdReaderApp {
                     });
                 });
 
-                ui.add_space(12.0);
+                ui.add_space(16.0);
 
                 // File operations group
                 ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.style_mut().spacing.button_padding = egui::vec2(10.0, 6.0);
+                    ui.horizontal_centered(|ui| {
+                        ui.style_mut().spacing.button_padding = egui::vec2(12.0, 8.0);
 
                         if ui.button("📂 Open File").clicked() {
                             if let Some(path) = rfd::FileDialog::new()
@@ -232,49 +212,25 @@ impl eframe::App for MdReaderApp {
                     });
                 });
 
-                ui.add_space(12.0);
+                ui.add_space(16.0);
 
-                // View controls group
+                // Theme toggle group
                 ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.style_mut().spacing.button_padding = egui::vec2(10.0, 6.0);
+                    ui.horizontal_centered(|ui| {
+                        ui.style_mut().spacing.button_padding = egui::vec2(12.0, 8.0);
 
                         if ui.button(format!("🌓 {}", self.theme.name())).clicked() {
                             self.theme.toggle();
                         }
-
-                        ui.separator();
-
-                        // Zoom controls with proper debouncing
-                        let zoom_out_btn = ui.add_enabled(
-                            self.zoom > 0.6,
-                            egui::Button::new("−").min_size(egui::vec2(28.0, 0.0)),
-                        );
-                        if zoom_out_btn.clicked() {
-                            self.zoom = (self.zoom - 0.1).max(0.5);
-                            self.zoom_changed = true;
-                        }
-
-                        ui.label(format!("{:.0}%", self.zoom * 100.0))
-                            .on_hover_text("Current zoom level");
-
-                        let zoom_in_btn = ui.add_enabled(
-                            self.zoom < 2.9,
-                            egui::Button::new("+").min_size(egui::vec2(28.0, 0.0)),
-                        );
-                        if zoom_in_btn.clicked() {
-                            self.zoom = (self.zoom + 0.1).min(3.0);
-                            self.zoom_changed = true;
-                        }
                     });
                 });
 
-                ui.add_space(12.0);
+                ui.add_space(16.0);
 
                 // Search group
                 ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.style_mut().spacing.button_padding = egui::vec2(10.0, 6.0);
+                    ui.horizontal_centered(|ui| {
+                        ui.style_mut().spacing.button_padding = egui::vec2(12.0, 8.0);
 
                         let search_text = if self.show_search {
                             "✕ Close Search"
@@ -288,9 +244,9 @@ impl eframe::App for MdReaderApp {
                     });
                 });
 
-                ui.add_space(8.0);
+                ui.add_space(12.0);
             });
-            ui.add_space(4.0);
+            ui.add_space(6.0);
         });
 
         // Links bar
