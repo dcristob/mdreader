@@ -1,5 +1,6 @@
 use crate::file;
 use crate::markdown::MarkdownContent;
+use crate::search::SearchState;
 use crate::theme::Theme;
 use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
@@ -13,6 +14,8 @@ pub struct MdReaderApp {
     pub cache: CommonMarkCache,
     pub theme: Theme,
     pub zoom: f32,
+    pub search: SearchState,
+    pub show_search: bool,
 }
 
 impl Default for MdReaderApp {
@@ -25,6 +28,8 @@ impl Default for MdReaderApp {
             cache: CommonMarkCache::default(),
             theme: Theme::default(),
             zoom: 1.0,
+            search: SearchState::default(),
+            show_search: false,
         }
     }
 }
@@ -39,6 +44,8 @@ impl MdReaderApp {
             cache: CommonMarkCache::default(),
             theme: Theme::default(),
             zoom: 1.0,
+            search: SearchState::default(),
+            show_search: false,
         };
 
         if let Some(path) = file {
@@ -67,6 +74,10 @@ impl MdReaderApp {
 
 impl eframe::App for MdReaderApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if ctx.input(|i| i.key_pressed(egui::Key::F)) && ctx.input(|i| i.modifiers.ctrl) {
+            self.show_search = !self.show_search;
+        }
+
         self.theme.apply(ctx);
 
         let mut style = (*ctx.style()).clone();
@@ -100,8 +111,38 @@ impl eframe::App for MdReaderApp {
                 if ui.button("+").clicked() && self.zoom < 3.0 {
                     self.zoom += 0.1;
                 }
+                ui.separator();
+                if ui.button("Search").clicked() {
+                    self.show_search = !self.show_search;
+                }
             });
         });
+
+        if self.show_search {
+            egui::TopBottomPanel::top("search_bar").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Find:");
+                    let response = ui.text_edit_singleline(&mut self.search.query);
+                    if response.changed() {
+                        if let Some(content) = &self.content {
+                            self.search.search(content);
+                        }
+                    }
+
+                    ui.label(self.search.match_count());
+
+                    if ui.button("◀").clicked() && self.search.has_matches() {
+                        self.search.prev_match();
+                    }
+                    if ui.button("▶").clicked() && self.search.has_matches() {
+                        self.search.next_match();
+                    }
+                    if ui.button("✕").clicked() {
+                        self.show_search = false;
+                    }
+                });
+            });
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(error) = &self.error {
