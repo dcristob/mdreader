@@ -10,6 +10,12 @@ impl Default for MdReaderApp {
     }
 }
 
+impl MdReaderApp {
+    pub fn new(file: Option<std::path::PathBuf>) -> Self {
+        Self { current_file: file }
+    }
+}
+
 impl eframe::App for MdReaderApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
