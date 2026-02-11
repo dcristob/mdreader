@@ -2,6 +2,7 @@ mod app;
 mod args;
 mod file;
 mod markdown;
+mod theme;
 
 use app::MdReaderApp;
 use args::Args;

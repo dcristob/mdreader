@@ -1,5 +1,6 @@
 use crate::file;
 use crate::markdown::MarkdownContent;
+use crate::theme::Theme;
 use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use std::path::PathBuf;
@@ -10,6 +11,7 @@ pub struct MdReaderApp {
     pub error: Option<String>,
     pub markdown: Option<MarkdownContent>,
     pub cache: CommonMarkCache,
+    pub theme: Theme,
 }
 
 impl Default for MdReaderApp {
@@ -20,6 +22,7 @@ impl Default for MdReaderApp {
             error: None,
             markdown: None,
             cache: CommonMarkCache::default(),
+            theme: Theme::default(),
         }
     }
 }
@@ -32,6 +35,7 @@ impl MdReaderApp {
             error: None,
             markdown: None,
             cache: CommonMarkCache::default(),
+            theme: Theme::default(),
         };
 
         if let Some(path) = file {
@@ -60,6 +64,8 @@ impl MdReaderApp {
 
 impl eframe::App for MdReaderApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.theme.apply(ctx);
+
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Open File").clicked() {
@@ -70,6 +76,10 @@ impl eframe::App for MdReaderApp {
                     {
                         self.load_file(path);
                     }
+                }
+                ui.separator();
+                if ui.button(format!("Theme: {}", self.theme.name())).clicked() {
+                    self.theme.toggle();
                 }
             });
         });
