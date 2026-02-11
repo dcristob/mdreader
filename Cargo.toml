@@ -1,0 +1,16 @@
+[package]
+name = "mdreader"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = "0.29"
+egui = "0.29"
+egui_commonmark = "0.19"
+pulldown-cmark = "0.12"
+pulldown-cmark-to-cmark = "13.0"
+syntect = "5.2"
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+notify = "6.1"
+rfd = "0.15"
+anyhow = "1.0"
