@@ -27,18 +27,43 @@ impl MdReaderApp {
         };
 
         if let Some(path) = file {
-            match file::load_file(&path) {
-                Ok(content) => app.content = Some(content),
-                Err(e) => app.error = Some(e.to_string()),
-            }
+            app.load_file(path);
         }
 
         app
+    }
+
+    fn load_file(&mut self, path: PathBuf) {
+        self.current_file = Some(path.clone());
+        match file::load_file(&path) {
+            Ok(content) => {
+                self.content = Some(content);
+                self.error = None;
+            }
+            Err(e) => {
+                self.error = Some(e.to_string());
+                self.content = None;
+            }
+        }
     }
 }
 
 impl eframe::App for MdReaderApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("Open File").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Markdown", &["md", "markdown"])
+                        .add_filter("All Files", &["*"])
+                        .pick_file()
+                    {
+                        self.load_file(path);
+                    }
+                }
+            });
+        });
+
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(error) = &self.error {
                 ui.colored_label(egui::Color32::RED, format!("Error: {}", error));
