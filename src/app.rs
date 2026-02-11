@@ -20,6 +20,9 @@ pub struct MdReaderApp {
     pub history: Vec<PathBuf>,
     pub history_pos: usize,
     pub file_watcher: Option<FileWatcher>,
+    pub toolbar_visible: bool,
+    pub toolbar_opacity: f32,
+    pub mouse_in_toolbar_zone: bool,
 }
 
 impl Default for MdReaderApp {
@@ -36,6 +39,9 @@ impl Default for MdReaderApp {
             history: Vec::new(),
             history_pos: 0,
             file_watcher: None,
+            toolbar_visible: false,
+            toolbar_opacity: 0.0,
+            mouse_in_toolbar_zone: false,
         }
     }
 }
@@ -54,6 +60,9 @@ impl MdReaderApp {
             history: Vec::new(),
             history_pos: 0,
             file_watcher: None,
+            toolbar_visible: false,
+            toolbar_opacity: 0.0,
+            mouse_in_toolbar_zone: false,
         };
 
         if let Some(path) = file {
@@ -61,6 +70,32 @@ impl MdReaderApp {
         }
 
         app
+    }
+
+    fn update_toolbar_visibility(&mut self, ctx: &egui::Context) {
+        // Check if mouse is in the top 60px of the window
+        if let Some(mouse_pos) = ctx.input(|i| i.pointer.hover_pos()) {
+            self.mouse_in_toolbar_zone = mouse_pos.y < 60.0;
+        } else {
+            self.mouse_in_toolbar_zone = false;
+        }
+
+        // Also show toolbar if search is active
+        let should_show = self.mouse_in_toolbar_zone || self.show_search;
+
+        // Smooth animation (1-2 seconds transition)
+        let target_opacity = if should_show { 1.0 } else { 0.0 };
+        let animation_speed = 0.015; // Adjust for 1-2 second transition
+
+        if self.toolbar_opacity < target_opacity {
+            self.toolbar_opacity = (self.toolbar_opacity + animation_speed).min(1.0);
+            ctx.request_repaint();
+        } else if self.toolbar_opacity > target_opacity {
+            self.toolbar_opacity = (self.toolbar_opacity - animation_speed).max(0.0);
+            ctx.request_repaint();
+        }
+
+        self.toolbar_visible = self.toolbar_opacity > 0.01;
     }
 
     fn load_file(&mut self, path: PathBuf) {
@@ -129,6 +164,9 @@ impl MdReaderApp {
 
 impl eframe::App for MdReaderApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Update toolbar auto-hide animation
+        self.update_toolbar_visibility(ctx);
+
         if let Some(ref watcher) = self.file_watcher {
             match watcher.receiver.try_recv() {
                 Ok(Ok(_event)) => {
@@ -152,102 +190,145 @@ impl eframe::App for MdReaderApp {
 
         self.theme.apply(ctx);
 
-        // Main toolbar with grouped buttons and professional styling
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
+        // Auto-hiding toolbar - only visible when mouse is in top area
+        if self.toolbar_visible {
+            let opacity = self.toolbar_opacity;
+            let y_offset = -50.0 * (1.0 - opacity); // Slide down from top
 
-                // Navigation group
-                ui.group(|ui| {
-                    ui.horizontal_centered(|ui| {
-                        ui.style_mut().spacing.button_padding = egui::vec2(12.0, 8.0);
+            egui::TopBottomPanel::top("toolbar")
+                .frame(egui::Frame::none().fill(egui::Color32::TRANSPARENT))
+                .show(ctx, |ui| {
+                    ui.add_space(6.0 + y_offset);
 
-                        let back_enabled = self.history_pos > 0;
-                        let forward_enabled =
-                            self.history_pos < self.history.len().saturating_sub(1);
+                    // Create semi-transparent background with fade effect
+                    let bg_color = if self.theme == Theme::Dark {
+                        egui::Color32::from_rgba_premultiplied(30, 30, 30, (opacity * 240.0) as u8)
+                    } else {
+                        egui::Color32::from_rgba_premultiplied(
+                            245,
+                            245,
+                            245,
+                            (opacity * 240.0) as u8,
+                        )
+                    };
 
-                        if ui
-                            .add_enabled(back_enabled, egui::Button::new("◀ Back"))
-                            .clicked()
-                        {
-                            if self.history_pos > 0 {
-                                self.history_pos -= 1;
-                                if let Some(path) = self.history.get(self.history_pos).cloned() {
-                                    self.load_file_without_history(path);
-                                }
-                            }
-                        }
+                    egui::Frame::group(ui.style())
+                        .fill(bg_color)
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            ui.visuals().widgets.noninteractive.bg_stroke.color,
+                        ))
+                        .rounding(8.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.add_space(12.0);
 
-                        if ui
-                            .add_enabled(forward_enabled, egui::Button::new("▶ Forward"))
-                            .clicked()
-                        {
-                            if self.history_pos < self.history.len().saturating_sub(1) {
-                                self.history_pos += 1;
-                                if let Some(path) = self.history.get(self.history_pos).cloned() {
-                                    self.load_file_without_history(path);
-                                }
-                            }
-                        }
-                    });
+                                // Navigation group
+                                ui.group(|ui| {
+                                    ui.horizontal_centered(|ui| {
+                                        ui.style_mut().spacing.button_padding =
+                                            egui::vec2(12.0, 8.0);
+
+                                        let back_enabled = self.history_pos > 0;
+                                        let forward_enabled =
+                                            self.history_pos < self.history.len().saturating_sub(1);
+
+                                        if ui
+                                            .add_enabled(back_enabled, egui::Button::new("◀ Back"))
+                                            .clicked()
+                                        {
+                                            if self.history_pos > 0 {
+                                                self.history_pos -= 1;
+                                                if let Some(path) =
+                                                    self.history.get(self.history_pos).cloned()
+                                                {
+                                                    self.load_file_without_history(path);
+                                                }
+                                            }
+                                        }
+
+                                        if ui
+                                            .add_enabled(
+                                                forward_enabled,
+                                                egui::Button::new("▶ Forward"),
+                                            )
+                                            .clicked()
+                                        {
+                                            if self.history_pos
+                                                < self.history.len().saturating_sub(1)
+                                            {
+                                                self.history_pos += 1;
+                                                if let Some(path) =
+                                                    self.history.get(self.history_pos).cloned()
+                                                {
+                                                    self.load_file_without_history(path);
+                                                }
+                                            }
+                                        }
+                                    });
+                                });
+
+                                ui.add_space(16.0);
+
+                                // File operations group
+                                ui.group(|ui| {
+                                    ui.horizontal_centered(|ui| {
+                                        ui.style_mut().spacing.button_padding =
+                                            egui::vec2(12.0, 8.0);
+
+                                        if ui.button("📂 Open File").clicked() {
+                                            if let Some(path) = rfd::FileDialog::new()
+                                                .add_filter("Markdown", &["md", "markdown"])
+                                                .add_filter("All Files", &["*"])
+                                                .pick_file()
+                                            {
+                                                self.load_file(path);
+                                            }
+                                        }
+                                    });
+                                });
+
+                                ui.add_space(16.0);
+
+                                // Theme toggle group
+                                ui.group(|ui| {
+                                    ui.horizontal_centered(|ui| {
+                                        ui.style_mut().spacing.button_padding =
+                                            egui::vec2(12.0, 8.0);
+
+                                        if ui.button(format!("🌓 {}", self.theme.name())).clicked()
+                                        {
+                                            self.theme.toggle();
+                                        }
+                                    });
+                                });
+
+                                ui.add_space(16.0);
+
+                                // Search group
+                                ui.group(|ui| {
+                                    ui.horizontal_centered(|ui| {
+                                        ui.style_mut().spacing.button_padding =
+                                            egui::vec2(12.0, 8.0);
+
+                                        let search_text = if self.show_search {
+                                            "✕ Close Search"
+                                        } else {
+                                            "🔍 Search (Ctrl+F)"
+                                        };
+
+                                        if ui.button(search_text).clicked() {
+                                            self.show_search = !self.show_search;
+                                        }
+                                    });
+                                });
+
+                                ui.add_space(12.0);
+                            });
+                        });
+                    ui.add_space(6.0);
                 });
-
-                ui.add_space(16.0);
-
-                // File operations group
-                ui.group(|ui| {
-                    ui.horizontal_centered(|ui| {
-                        ui.style_mut().spacing.button_padding = egui::vec2(12.0, 8.0);
-
-                        if ui.button("📂 Open File").clicked() {
-                            if let Some(path) = rfd::FileDialog::new()
-                                .add_filter("Markdown", &["md", "markdown"])
-                                .add_filter("All Files", &["*"])
-                                .pick_file()
-                            {
-                                self.load_file(path);
-                            }
-                        }
-                    });
-                });
-
-                ui.add_space(16.0);
-
-                // Theme toggle group
-                ui.group(|ui| {
-                    ui.horizontal_centered(|ui| {
-                        ui.style_mut().spacing.button_padding = egui::vec2(12.0, 8.0);
-
-                        if ui.button(format!("🌓 {}", self.theme.name())).clicked() {
-                            self.theme.toggle();
-                        }
-                    });
-                });
-
-                ui.add_space(16.0);
-
-                // Search group
-                ui.group(|ui| {
-                    ui.horizontal_centered(|ui| {
-                        ui.style_mut().spacing.button_padding = egui::vec2(12.0, 8.0);
-
-                        let search_text = if self.show_search {
-                            "✕ Close Search"
-                        } else {
-                            "🔍 Search (Ctrl+F)"
-                        };
-
-                        if ui.button(search_text).clicked() {
-                            self.show_search = !self.show_search;
-                        }
-                    });
-                });
-
-                ui.add_space(12.0);
-            });
-            ui.add_space(6.0);
-        });
+        }
 
         // Links bar
         let links_to_show: Vec<(String, String)> = self
