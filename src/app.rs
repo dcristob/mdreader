@@ -1,4 +1,5 @@
 use crate::file;
+use crate::links;
 use crate::markdown::MarkdownContent;
 use crate::search::SearchState;
 use crate::theme::Theme;
@@ -148,7 +149,9 @@ impl eframe::App for MdReaderApp {
             if let Some(error) = &self.error {
                 ui.colored_label(egui::Color32::RED, format!("Error: {}", error));
             } else if let Some(content) = &self.content {
-                CommonMarkViewer::new().show(ui, &mut self.cache, content);
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    CommonMarkViewer::new().show(ui, &mut self.cache, content);
+                });
             } else {
                 ui.label("Open a markdown file to begin");
             }
