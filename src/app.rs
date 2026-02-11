@@ -190,157 +190,144 @@ impl eframe::App for MdReaderApp {
 
         self.theme.apply(ctx);
 
-        // Auto-hiding toolbar - fades in/out smoothly (overlays content without scrolling)
-        if self.toolbar_opacity > 0.01 {
-            let opacity = self.toolbar_opacity;
+        let screen_rect = ctx.screen_rect();
+        let screen_width = screen_rect.width();
+        let is_narrow = screen_width < 800.0;
 
-            // Create semi-transparent background color
-            let bg_color = if self.theme == Theme::Dark {
-                egui::Color32::from_rgba_premultiplied(30, 30, 30, (opacity * 220.0) as u8)
-            } else {
-                egui::Color32::from_rgba_premultiplied(240, 240, 240, (opacity * 220.0) as u8)
-            };
+        // Show either Search Bar OR Toolbar (not both)
+        if self.show_search {
+            // Search Bar replaces toolbar at the top
+            egui::TopBottomPanel::top("search_bar").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_space(12.0);
+                    ui.label("🔍 Find:");
 
-            let screen_width = ctx.screen_rect().width();
+                    ui.add(egui::TextEdit::singleline(&mut self.search.query).desired_width(250.0));
 
-            // Use Area to overlay on top without affecting layout (no scrolling)
-            egui::Area::new("toolbar_area".into())
-                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 10.0))
-                .movable(false)
-                .show(ctx, |ui| {
-                    let frame = egui::Frame::group(ui.style())
-                        .fill(bg_color)
-                        .stroke(egui::Stroke::new(
-                            1.0,
-                            ui.visuals()
-                                .widgets
-                                .noninteractive
-                                .bg_stroke
-                                .color
-                                .linear_multiply(opacity),
-                        ))
-                        .rounding(8.0);
+                    if ui.ctx().input(|i| i.key_pressed(egui::Key::Enter)) {
+                        if let Some(content) = &self.content {
+                            self.search.search(content);
+                        }
+                    }
 
-                    frame.show(ui, |ui| {
-                        ui.set_min_width(screen_width - 100.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(20.0);
+                    ui.label(self.search.match_count());
 
-                            // Navigation group
-                            ui.group(|ui| {
-                                ui.horizontal_centered(|ui| {
-                                    ui.style_mut().spacing.button_padding = egui::vec2(12.0, 8.0);
+                    ui.add_enabled_ui(self.search.has_matches(), |ui| {
+                        if ui.button("◀ Prev").clicked() {
+                            self.search.prev_match();
+                        }
+                        if ui.button("▶ Next").clicked() {
+                            self.search.next_match();
+                        }
+                    });
 
-                                    let back_enabled = self.history_pos > 0;
-                                    let forward_enabled =
-                                        self.history_pos < self.history.len().saturating_sub(1);
-
-                                    if ui
-                                        .add_enabled(back_enabled, egui::Button::new("◀ Back"))
-                                        .clicked()
-                                    {
-                                        if self.history_pos > 0 {
-                                            self.history_pos -= 1;
-                                            if let Some(path) =
-                                                self.history.get(self.history_pos).cloned()
-                                            {
-                                                self.load_file_without_history(path);
-                                            }
-                                        }
-                                    }
-
-                                    if ui
-                                        .add_enabled(
-                                            forward_enabled,
-                                            egui::Button::new("▶ Forward"),
-                                        )
-                                        .clicked()
-                                    {
-                                        if self.history_pos < self.history.len().saturating_sub(1) {
-                                            self.history_pos += 1;
-                                            if let Some(path) =
-                                                self.history.get(self.history_pos).cloned()
-                                            {
-                                                self.load_file_without_history(path);
-                                            }
-                                        }
-                                    }
-                                });
-                            });
-
-                            // Flexible space to push groups apart
-                            ui.with_layout(
-                                egui::Layout::left_to_right(egui::Align::Center),
-                                |ui| {
-                                    ui.add_space(ui.available_width() * 0.2);
-                                },
-                            );
-
-                            // File operations group
-                            ui.group(|ui| {
-                                ui.horizontal_centered(|ui| {
-                                    ui.style_mut().spacing.button_padding = egui::vec2(12.0, 8.0);
-
-                                    if ui.button("📂 Open File").clicked() {
-                                        if let Some(path) = rfd::FileDialog::new()
-                                            .add_filter("Markdown", &["md", "markdown"])
-                                            .add_filter("All Files", &["*"])
-                                            .pick_file()
-                                        {
-                                            self.load_file(path);
-                                        }
-                                    }
-                                });
-                            });
-
-                            // Flexible space
-                            ui.with_layout(
-                                egui::Layout::left_to_right(egui::Align::Center),
-                                |ui| {
-                                    ui.add_space(ui.available_width() * 0.3);
-                                },
-                            );
-
-                            // Theme toggle group
-                            ui.group(|ui| {
-                                ui.horizontal_centered(|ui| {
-                                    ui.style_mut().spacing.button_padding = egui::vec2(12.0, 8.0);
-
-                                    if ui.button(format!("🌓 {}", self.theme.name())).clicked() {
-                                        self.theme.toggle();
-                                    }
-                                });
-                            });
-
-                            // Flexible space
-                            ui.with_layout(
-                                egui::Layout::left_to_right(egui::Align::Center),
-                                |ui| {
-                                    ui.add_space(ui.available_width() * 0.5);
-                                },
-                            );
-
-                            // Search group
-                            ui.group(|ui| {
-                                ui.horizontal_centered(|ui| {
-                                    ui.style_mut().spacing.button_padding = egui::vec2(12.0, 8.0);
-
-                                    let search_text = if self.show_search {
-                                        "✕ Close Search"
-                                    } else {
-                                        "🔍 Search (Ctrl+F)"
-                                    };
-
-                                    if ui.button(search_text).clicked() {
-                                        self.show_search = !self.show_search;
-                                    }
-                                });
-                            });
-
-                            ui.add_space(20.0);
-                        });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("✕ Close").clicked() {
+                            self.show_search = false;
+                        }
                     });
                 });
+            });
+        } else if self.toolbar_opacity > 0.01 {
+            // Regular Toolbar - fades in/out
+            let opacity = self.toolbar_opacity;
+
+            let bg_color = if self.theme == Theme::Dark {
+                egui::Color32::from_rgba_premultiplied(30, 30, 30, (opacity * 235.0) as u8)
+            } else {
+                egui::Color32::from_rgba_premultiplied(245, 245, 245, (opacity * 235.0) as u8)
+            };
+
+            egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+                let frame = egui::Frame::group(ui.style())
+                    .fill(bg_color)
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        ui.visuals()
+                            .widgets
+                            .noninteractive
+                            .bg_stroke
+                            .color
+                            .linear_multiply(opacity),
+                    ))
+                    .rounding(6.0);
+
+                frame.show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+
+                        // Navigation group
+                        ui.group(|ui| {
+                            ui.horizontal_centered(|ui| {
+                                ui.style_mut().spacing.button_padding = egui::vec2(10.0, 6.0);
+
+                                let back_enabled = self.history_pos > 0;
+                                let forward_enabled =
+                                    self.history_pos < self.history.len().saturating_sub(1);
+
+                                if ui
+                                    .add_enabled(back_enabled, egui::Button::new("◀"))
+                                    .clicked()
+                                {
+                                    if self.history_pos > 0 {
+                                        self.history_pos -= 1;
+                                        if let Some(path) =
+                                            self.history.get(self.history_pos).cloned()
+                                        {
+                                            self.load_file_without_history(path);
+                                        }
+                                    }
+                                }
+
+                                if ui
+                                    .add_enabled(forward_enabled, egui::Button::new("▶"))
+                                    .clicked()
+                                {
+                                    if self.history_pos < self.history.len().saturating_sub(1) {
+                                        self.history_pos += 1;
+                                        if let Some(path) =
+                                            self.history.get(self.history_pos).cloned()
+                                        {
+                                            self.load_file_without_history(path);
+                                        }
+                                    }
+                                }
+                            });
+                        });
+
+                        ui.add_space(8.0);
+
+                        // File operations
+                        if ui.button("📂 Open").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("Markdown", &["md", "markdown"])
+                                .add_filter("All Files", &["*"])
+                                .pick_file()
+                            {
+                                self.load_file(path);
+                            }
+                        }
+
+                        if !is_narrow {
+                            ui.add_space(8.0);
+
+                            // Theme toggle
+                            if ui.button(format!("🌓 {}", self.theme.name())).clicked() {
+                                self.theme.toggle();
+                            }
+                        }
+
+                        // Push search to the right
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("🔍 Search (Ctrl+F)").clicked() {
+                                self.show_search = true;
+                            }
+                        });
+
+                        ui.add_space(16.0);
+                    });
+                });
+            });
         }
 
         // Links bar
@@ -364,38 +351,6 @@ impl eframe::App for MdReaderApp {
                         if ui.button(text).clicked() {
                             self.handle_link(url);
                         }
-                    }
-                });
-            });
-        }
-
-        // Search bar
-        if self.show_search {
-            egui::TopBottomPanel::top("search_bar").show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add_space(8.0);
-                    ui.label("🔍 Find:");
-
-                    let response = ui.text_edit_singleline(&mut self.search.query);
-                    if response.changed() {
-                        if let Some(content) = &self.content {
-                            self.search.search(content);
-                        }
-                    }
-
-                    ui.label(self.search.match_count());
-
-                    ui.add_enabled_ui(self.search.has_matches(), |ui| {
-                        if ui.button("◀ Prev").clicked() {
-                            self.search.prev_match();
-                        }
-                        if ui.button("▶ Next").clicked() {
-                            self.search.next_match();
-                        }
-                    });
-
-                    if ui.button("✕").clicked() {
-                        self.show_search = false;
                     }
                 });
             });
