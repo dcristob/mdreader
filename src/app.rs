@@ -1,10 +1,12 @@
 use crate::file;
+use crate::file::FileWatcher;
 use crate::markdown::MarkdownContent;
 use crate::search::SearchState;
 use crate::theme::Theme;
 use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use std::path::PathBuf;
+use std::sync::mpsc::TryRecvError;
 
 pub struct MdReaderApp {
     pub current_file: Option<PathBuf>,
@@ -18,6 +20,7 @@ pub struct MdReaderApp {
     pub show_search: bool,
     pub history: Vec<PathBuf>,
     pub history_pos: usize,
+    pub file_watcher: Option<FileWatcher>,
 }
 
 impl Default for MdReaderApp {
@@ -34,6 +37,7 @@ impl Default for MdReaderApp {
             show_search: false,
             history: Vec::new(),
             history_pos: 0,
+            file_watcher: None,
         }
     }
 }
@@ -52,6 +56,7 @@ impl MdReaderApp {
             show_search: false,
             history: Vec::new(),
             history_pos: 0,
+            file_watcher: None,
         };
 
         if let Some(path) = file {
@@ -81,6 +86,11 @@ impl MdReaderApp {
                 self.content = None;
                 self.markdown = None;
             }
+        }
+
+        match FileWatcher::new(&path) {
+            Ok(watcher) => self.file_watcher = Some(watcher),
+            Err(_) => self.file_watcher = None,
         }
     }
 
@@ -122,6 +132,23 @@ impl MdReaderApp {
 
 impl eframe::App for MdReaderApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(ref watcher) = self.file_watcher {
+            match watcher.receiver.try_recv() {
+                Ok(Ok(_event)) => {
+                    if let Some(ref path) = self.current_file {
+                        if let Ok(content) = file::load_file(path) {
+                            self.markdown = Some(crate::markdown::parse(&content));
+                            self.content = Some(content);
+                        }
+                    }
+                }
+                Ok(Err(_)) | Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    self.file_watcher = None;
+                }
+            }
+        }
+
         if ctx.input(|i| i.key_pressed(egui::Key::F)) && ctx.input(|i| i.modifiers.ctrl) {
             self.show_search = !self.show_search;
         }
