@@ -1,6 +1,7 @@
 mod app;
 mod args;
 mod file;
+mod markdown;
 
 use app::MdReaderApp;
 use args::Args;

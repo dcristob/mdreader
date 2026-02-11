@@ -1,4 +1,5 @@
 use crate::file;
+use crate::markdown::MarkdownContent;
 use eframe::egui;
 use std::path::PathBuf;
 
@@ -6,6 +7,7 @@ pub struct MdReaderApp {
     pub current_file: Option<PathBuf>,
     pub content: Option<String>,
     pub error: Option<String>,
+    pub markdown: Option<MarkdownContent>,
 }
 
 impl Default for MdReaderApp {
@@ -14,6 +16,7 @@ impl Default for MdReaderApp {
             current_file: None,
             content: None,
             error: None,
+            markdown: None,
         }
     }
 }
@@ -24,6 +27,7 @@ impl MdReaderApp {
             current_file: file.clone(),
             content: None,
             error: None,
+            markdown: None,
         };
 
         if let Some(path) = file {
@@ -37,12 +41,14 @@ impl MdReaderApp {
         self.current_file = Some(path.clone());
         match file::load_file(&path) {
             Ok(content) => {
+                self.markdown = Some(crate::markdown::parse(&content));
                 self.content = Some(content);
                 self.error = None;
             }
             Err(e) => {
                 self.error = Some(e.to_string());
                 self.content = None;
+                self.markdown = None;
             }
         }
     }
