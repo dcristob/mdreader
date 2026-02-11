@@ -71,6 +71,12 @@ impl MdReaderApp {
             }
         }
     }
+
+    fn handle_link(&self, url: &str) {
+        if let Err(e) = links::open_link(url) {
+            eprintln!("Failed to open link: {}", e);
+        }
+    }
 }
 
 impl eframe::App for MdReaderApp {
@@ -118,6 +124,23 @@ impl eframe::App for MdReaderApp {
                 }
             });
         });
+
+        if let Some(markdown) = &self.markdown {
+            if !markdown.links.is_empty() {
+                egui::TopBottomPanel::top("links_bar").show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Links:");
+                        for link in &markdown.links {
+                            if link.url.starts_with("http://") || link.url.starts_with("https://") {
+                                if ui.button(&link.text).clicked() {
+                                    self.handle_link(&link.url);
+                                }
+                            }
+                        }
+                    });
+                });
+            }
+        }
 
         if self.show_search {
             egui::TopBottomPanel::top("search_bar").show(ctx, |ui| {
