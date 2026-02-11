@@ -12,6 +12,7 @@ pub struct MdReaderApp {
     pub markdown: Option<MarkdownContent>,
     pub cache: CommonMarkCache,
     pub theme: Theme,
+    pub zoom: f32,
 }
 
 impl Default for MdReaderApp {
@@ -23,6 +24,7 @@ impl Default for MdReaderApp {
             markdown: None,
             cache: CommonMarkCache::default(),
             theme: Theme::default(),
+            zoom: 1.0,
         }
     }
 }
@@ -36,6 +38,7 @@ impl MdReaderApp {
             markdown: None,
             cache: CommonMarkCache::default(),
             theme: Theme::default(),
+            zoom: 1.0,
         };
 
         if let Some(path) = file {
@@ -66,6 +69,14 @@ impl eframe::App for MdReaderApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.theme.apply(ctx);
 
+        let mut style = (*ctx.style()).clone();
+        style.text_styles = style
+            .text_styles
+            .into_iter()
+            .map(|(id, font)| (id, egui::FontId::new(font.size * self.zoom, font.family)))
+            .collect();
+        ctx.set_style(style);
+
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Open File").clicked() {
@@ -80,6 +91,14 @@ impl eframe::App for MdReaderApp {
                 ui.separator();
                 if ui.button(format!("Theme: {}", self.theme.name())).clicked() {
                     self.theme.toggle();
+                }
+                ui.separator();
+                if ui.button("-").clicked() && self.zoom > 0.5 {
+                    self.zoom -= 0.1;
+                }
+                ui.label(format!("{:.0}%", self.zoom * 100.0));
+                if ui.button("+").clicked() && self.zoom < 3.0 {
+                    self.zoom += 0.1;
                 }
             });
         });
