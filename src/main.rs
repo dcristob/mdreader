@@ -1,8 +1,8 @@
 mod app;
 mod args;
+mod config;
 mod file;
-mod links;
-mod markdown;
+mod render;
 mod search;
 mod theme;
 

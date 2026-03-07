@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Theme {
     Light,
@@ -10,8 +12,35 @@ impl Default for Theme {
     }
 }
 
+static FONTS_LOADED: AtomicBool = AtomicBool::new(false);
+
 impl Theme {
     pub fn apply(&self, ctx: &egui::Context) {
+        // Load custom fonts once (apply() is called every frame in immediate mode)
+        if !FONTS_LOADED.swap(true, Ordering::Relaxed) {
+            use egui::epaint::text::{FontInsert, InsertFontFamily, FontPriority};
+            use egui::FontData;
+
+            ctx.add_font(FontInsert::new(
+                "inter",
+                FontData::from_static(include_bytes!("../fonts/Inter-Regular.ttf")),
+                vec![InsertFontFamily {
+                    family: egui::FontFamily::Proportional,
+                    priority: FontPriority::Highest,
+                }],
+            ));
+
+            ctx.add_font(FontInsert::new(
+                "jetbrains_mono",
+                FontData::from_static(include_bytes!("../fonts/JetBrainsMono-Regular.ttf")),
+                vec![InsertFontFamily {
+                    family: egui::FontFamily::Monospace,
+                    priority: FontPriority::Highest,
+                }],
+            ));
+        }
+
+        // Apply theme visuals
         match self {
             Theme::Light => {
                 let mut visuals = egui::Visuals::light();
@@ -25,28 +54,29 @@ impl Theme {
             }
         }
 
-        // Set larger default font sizes
+        // Set text style sizes and global spacing
         let mut style = (*ctx.style()).clone();
         style.text_styles.insert(
             egui::TextStyle::Heading,
-            egui::FontId::new(28.0, egui::FontFamily::Proportional),
+            egui::FontId::new(30.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Body,
-            egui::FontId::new(16.0, egui::FontFamily::Proportional),
+            egui::FontId::new(17.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Monospace,
-            egui::FontId::new(14.0, egui::FontFamily::Monospace),
+            egui::FontId::new(15.0, egui::FontFamily::Monospace),
         );
         style.text_styles.insert(
             egui::TextStyle::Button,
-            egui::FontId::new(14.0, egui::FontFamily::Proportional),
+            egui::FontId::new(15.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Small,
-            egui::FontId::new(12.0, egui::FontFamily::Proportional),
+            egui::FontId::new(13.0, egui::FontFamily::Proportional),
         );
+        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
         ctx.set_style(style);
     }
 
@@ -55,12 +85,5 @@ impl Theme {
             Theme::Light => Theme::Dark,
             Theme::Dark => Theme::Light,
         };
-    }
-
-    pub fn name(&self) -> &'static str {
-        match self {
-            Theme::Light => "Light",
-            Theme::Dark => "Dark",
-        }
     }
 }
