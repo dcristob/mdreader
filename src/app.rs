@@ -113,6 +113,8 @@ impl MdReaderApp {
         self.history.push(path.clone());
         self.history_pos = self.history.len() - 1;
 
+        crate::config::add_recent_file(&path);
+
         match file::load_file(&path) {
             Ok(content) => {
                 self.content = Some(content);
@@ -142,6 +144,11 @@ impl MdReaderApp {
                 self.content = None;
             }
         }
+
+        match FileWatcher::new(&path) {
+            Ok(watcher) => self.file_watcher = Some(watcher),
+            Err(_) => self.file_watcher = None,
+        }
     }
 
     fn scroll_to_current_match(&mut self) {
@@ -153,6 +160,16 @@ impl MdReaderApp {
 
 impl eframe::App for MdReaderApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Handle drag-and-drop
+        ctx.input(|i| {
+            for file in &i.raw.dropped_files {
+                if let Some(path) = &file.path {
+                    return Some(path.clone());
+                }
+            }
+            None
+        }).map(|path| self.load_file(path));
+
         // Update toolbar auto-hide animation
         self.update_toolbar_visibility(ctx);
 
@@ -177,10 +194,22 @@ impl eframe::App for MdReaderApp {
             ctx.request_repaint();
         }
 
-        if ctx.input(|i| i.key_pressed(egui::Key::F)) && ctx.input(|i| i.modifiers.ctrl) {
+        if ctx.input(|i| i.key_pressed(egui::Key::F) && i.modifiers.ctrl) {
             self.show_search = !self.show_search;
             if self.show_search {
                 self.search_focus_requested = true;
+            }
+        }
+
+        if self.show_search {
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.show_search = false;
+            } else if ctx.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.shift) {
+                self.search.prev_match();
+                self.scroll_to_current_match();
+            } else if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+                self.search.next_match();
+                self.scroll_to_current_match();
             }
         }
 
@@ -375,6 +404,7 @@ impl eframe::App for MdReaderApp {
         };
         let content_frame = egui::Frame::central_panel(ctx.style().as_ref())
             .inner_margin(content_margin);
+        let mut pending_nav: Option<std::path::PathBuf> = None;
         egui::CentralPanel::default().frame(content_frame).show(ctx, |ui| {
             if let Some(error) = &self.error {
                 ui.colored_label(egui::Color32::RED, format!("Error: {}", error));
@@ -386,13 +416,25 @@ impl eframe::App for MdReaderApp {
                 self.scroll_to_match = false;
 
                 scroll_area.show(ui, |ui: &mut egui::Ui| {
+                    let base_dir = self.current_file.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf()));
                     if self.show_search && self.search.has_matches() {
-                        crate::render::render_highlighted_markdown(
+                        let action = crate::render::render_highlighted_markdown(
                             ui,
                             content,
                             &self.search,
                             scroll_to,
+                            base_dir.as_deref(),
                         );
+                        if let Some(action) = action {
+                            match action {
+                                crate::render::LinkAction::OpenUrl(url) => {
+                                    let _ = open::that(&url);
+                                }
+                                crate::render::LinkAction::NavigateFile(path) => {
+                                    pending_nav = Some(path);
+                                }
+                            }
+                        }
                     } else {
                         CommonMarkViewer::new().show(ui, &mut self.cache, content);
                     }
@@ -404,10 +446,42 @@ impl eframe::App for MdReaderApp {
                     ui.add_space(20.0);
                     ui.label("Open a markdown file to begin");
                     ui.add_space(10.0);
-                    ui.label("Use Open or drag and drop a file");
+                    ui.label("Use Open, drag and drop, or Ctrl+F to search");
+
+                    let recent = crate::config::load_recent_files();
+                    if !recent.is_empty() {
+                        ui.add_space(30.0);
+                        ui.heading("Recent Files");
+                        ui.add_space(10.0);
+                        let mut open_path = None;
+                        for path in &recent {
+                            let display = path.file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_else(|| path.display().to_string());
+                            let label = format!("📄 {}", display);
+                            if ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(&label)
+                                        .color(egui::Color32::from_rgb(66, 133, 244))
+                                )
+                                .selectable(false)
+                                .sense(egui::Sense::click())
+                            ).on_hover_text(path.display().to_string()).clicked() {
+                                open_path = Some(path.clone());
+                            }
+                        }
+                        if let Some(path) = open_path {
+                            pending_nav = Some(path);
+                        }
+                    }
                 });
             }
         });
+
+        // Handle link navigation after panel rendering (avoids borrow conflicts)
+        if let Some(path) = pending_nav {
+            self.load_file(path);
+        }
 
         // Status bar
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {

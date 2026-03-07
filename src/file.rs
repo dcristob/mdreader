@@ -1,5 +1,5 @@
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::mpsc::{channel, Receiver};
 
 pub struct FileWatcher {
@@ -8,7 +8,7 @@ pub struct FileWatcher {
 }
 
 impl FileWatcher {
-    pub fn new(path: &PathBuf) -> anyhow::Result<Self> {
+    pub fn new(path: &Path) -> anyhow::Result<Self> {
         let (tx, rx) = channel();
         
         let mut watcher = RecommendedWatcher::new(
@@ -29,7 +29,7 @@ impl FileWatcher {
 
 use anyhow::Result;
 
-pub fn load_file(path: &PathBuf) -> Result<String> {
+pub fn load_file(path: &Path) -> Result<String> {
     std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("Failed to read file: {}", e))
 }

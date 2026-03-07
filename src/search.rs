@@ -36,7 +36,7 @@ impl SearchState {
         let mut start = 0;
         while let Some(pos) = content_lower[start..].find(&query_lower) {
             let match_start = start + pos;
-            let match_end = match_start + self.query.len();
+            let match_end = match_start + query_lower.len();
 
             self.matches.push(Match {
                 start: match_start,

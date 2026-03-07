@@ -2,8 +2,30 @@ use crate::search::SearchState;
 use eframe::egui;
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, FontFamily, FontId, Stroke};
-use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd};
 use std::ops::Range;
+use std::sync::OnceLock;
+use syntect::highlighting::{ThemeSet, Style as SyntectStyle};
+use syntect::parsing::SyntaxSet;
+use syntect::easy::HighlightLines;
+
+fn syntax_set() -> &'static SyntaxSet {
+    static SS: OnceLock<SyntaxSet> = OnceLock::new();
+    SS.get_or_init(SyntaxSet::load_defaults_newlines)
+}
+
+fn theme_set() -> &'static ThemeSet {
+    static TS: OnceLock<ThemeSet> = OnceLock::new();
+    TS.get_or_init(ThemeSet::load_defaults)
+}
+
+/// Link click action returned from rendering, to be handled by the caller.
+pub enum LinkAction {
+    /// Open an external URL in the system browser
+    OpenUrl(String),
+    /// Navigate to a relative markdown file
+    NavigateFile(std::path::PathBuf),
+}
 
 /// Renders markdown with search match highlighting.
 /// Uses pulldown-cmark for parsing and egui LayoutJob for styled text
@@ -15,16 +37,22 @@ pub fn render_highlighted_markdown(
     content: &str,
     search: &SearchState,
     scroll_to_match: bool,
-) {
+    base_dir: Option<&std::path::Path>,
+) -> Option<LinkAction> {
+    let is_dark = ui.visuals().dark_mode;
     let parser = Parser::new(content).into_offset_iter();
 
     let mut job = LayoutJob::default();
     let mut fmt = FormatState::default();
     let mut in_code_block = false;
     let mut code_block_text = String::new();
+    let mut code_block_source_start: usize = 0;
+    let mut code_block_lang = String::new();
     let mut list_stack: Vec<Option<u64>> = Vec::new();
     let mut need_list_marker = false;
     let mut job_has_current_match = false;
+    let mut current_link_url: Option<String> = None;
+    let mut link_action: Option<LinkAction> = None;
 
     for (event, range) in parser {
         match event {
@@ -50,16 +78,21 @@ pub fn render_highlighted_markdown(
                 job_has_current_match = false;
                 ui.add_space(8.0);
             }
-            Event::Start(Tag::CodeBlock(_)) => {
+            Event::Start(Tag::CodeBlock(kind)) => {
                 flush_job(ui, &mut job, scroll_to_match && job_has_current_match);
                 job_has_current_match = false;
                 in_code_block = true;
                 code_block_text.clear();
+                code_block_source_start = range.start;
+                code_block_lang = match &kind {
+                    CodeBlockKind::Fenced(lang) => lang.split_whitespace().next().unwrap_or("").to_string(),
+                    CodeBlockKind::Indented => String::new(),
+                };
             }
             Event::End(TagEnd::CodeBlock) => {
                 in_code_block = false;
                 let code_text = std::mem::take(&mut code_block_text);
-                render_code_block(ui, &code_text, search, content, scroll_to_match);
+                render_code_block(ui, &code_text, &code_block_lang, search, content, code_block_source_start, scroll_to_match, is_dark);
                 ui.add_space(8.0);
             }
             Event::Start(Tag::List(start)) => {
@@ -95,8 +128,39 @@ pub fn render_highlighted_markdown(
             Event::End(TagEnd::Emphasis) => fmt.italic = false,
             Event::Start(Tag::Strikethrough) => fmt.strikethrough = true,
             Event::End(TagEnd::Strikethrough) => fmt.strikethrough = false,
-            Event::Start(Tag::Link { .. }) => fmt.link = true,
-            Event::End(TagEnd::Link) => fmt.link = false,
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                fmt.link = true;
+                current_link_url = Some(dest_url.to_string());
+                // Flush before link so we can make the link text clickable
+                flush_job(ui, &mut job, scroll_to_match && job_has_current_match);
+                job_has_current_match = false;
+            }
+            Event::End(TagEnd::Link) => {
+                // Flush the link text and make it clickable
+                if !job.text.is_empty() {
+                    let mut j = std::mem::take(&mut job);
+                    j.wrap.max_width = ui.available_width();
+                    let response = ui.add(
+                        egui::Label::new(j)
+                            .selectable(true)
+                            .sense(egui::Sense::click()),
+                    );
+                    if scroll_to_match && job_has_current_match {
+                        response.scroll_to_me(Some(egui::Align::Center));
+                    }
+                    if response.clicked() {
+                        if let Some(ref url) = current_link_url {
+                            link_action = Some(resolve_link(url, base_dir));
+                        }
+                    }
+                    if response.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    job_has_current_match = false;
+                }
+                fmt.link = false;
+                current_link_url = None;
+            }
 
             // Text content
             Event::Text(text) => {
@@ -144,14 +208,37 @@ pub fn render_highlighted_markdown(
     }
 
     flush_job(ui, &mut job, scroll_to_match && job_has_current_match);
+
+    link_action
+}
+
+fn resolve_link(url: &str, base_dir: Option<&std::path::Path>) -> LinkAction {
+    // External URLs: open in browser
+    if url.starts_with("http://") || url.starts_with("https://") || url.starts_with("mailto:") {
+        return LinkAction::OpenUrl(url.to_string());
+    }
+
+    // Relative paths: resolve against the current file's directory
+    if let Some(base) = base_dir {
+        let clean_url = url.split('#').next().unwrap_or(url);
+        let target = base.join(clean_url);
+        if clean_url.ends_with(".md") || clean_url.ends_with(".markdown") {
+            return LinkAction::NavigateFile(target);
+        }
+    }
+
+    LinkAction::OpenUrl(url.to_string())
 }
 
 fn render_code_block(
     ui: &mut egui::Ui,
     code_text: &str,
+    lang: &str,
     search: &SearchState,
     content: &str,
+    source_start: usize,
     scroll_to_match: bool,
+    is_dark: bool,
 ) {
     egui::Frame::group(ui.style())
         .fill(ui.visuals().extreme_bg_color)
@@ -159,28 +246,105 @@ fn render_code_block(
         .inner_margin(8.0)
         .show(ui, |ui| {
             let mut code_job = LayoutJob::default();
-            let fmt = FormatState {
-                code: true,
-                ..Default::default()
+            let mut has_current = false;
+
+            let ss = syntax_set();
+            let ts = theme_set();
+            let theme_name = if is_dark { "base16-ocean.dark" } else { "base16-ocean.light" };
+            let theme = &ts.themes[theme_name];
+
+            let syntax = if !lang.is_empty() {
+                ss.find_syntax_by_token(lang)
+            } else {
+                None
+            }
+            .unwrap_or_else(|| ss.find_syntax_plain_text());
+
+            // Compute search match ranges relative to this code block
+            let (src_pos, search_matches) = if search.has_matches() {
+                let source_slice = &content[source_start..];
+                let text_offset = source_slice.find(code_text).unwrap_or(0);
+                let sp = source_start + text_offset;
+                // Pre-compute which matches overlap this block
+                let matches: Vec<(usize, usize, bool)> = search
+                    .matches
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, m)| m.end > sp && m.start < sp + code_text.len())
+                    .map(|(idx, m)| {
+                        let start = m.start.saturating_sub(sp).min(code_text.len());
+                        let end = (m.end - sp).min(code_text.len());
+                        let is_current = search.current_match == Some(idx);
+                        (start, end, is_current)
+                    })
+                    .collect();
+                (sp, matches)
+            } else {
+                (0, Vec::new())
             };
 
-            let mut has_current = false;
-            if !search.has_matches() {
-                let tf = fmt.to_text_format(ui);
-                code_job.append(code_text, 0.0, tf);
-            } else {
-                // Find this code block's position in the source to highlight matches
-                // We search for the code text in the full content
-                if let Some(src_pos) = content.find(code_text) {
-                    let fake_range = src_pos..src_pos + code_text.len();
-                    has_current = append_highlighted_text(
-                        &mut code_job, code_text, fake_range, content, search, &fmt, ui,
-                    );
-                } else {
-                    let tf = fmt.to_text_format(ui);
-                    code_job.append(code_text, 0.0, tf);
+            let font_size = 15.0;
+            let font_id = FontId::new(font_size, FontFamily::Monospace);
+
+            let mut highlighter = HighlightLines::new(syntax, theme);
+            let mut char_offset: usize = 0; // byte offset within code_text
+
+            for line in syntect::util::LinesWithEndings::from(code_text) {
+                let regions = highlighter
+                    .highlight_line(line, ss)
+                    .unwrap_or_default();
+
+                for (style, text) in regions {
+                    let seg_start = char_offset;
+                    let seg_end = char_offset + text.len();
+
+                    if search_matches.is_empty() {
+                        // No search — just syntax colors
+                        let tf = syntect_style_to_format(&style, &font_id, ui);
+                        code_job.append(text, 0.0, tf);
+                    } else {
+                        // Interleave syntax colors with search highlights
+                        let mut pos = 0usize;
+                        for &(m_start, m_end, is_current) in &search_matches {
+                            if m_end <= seg_start || m_start >= seg_end {
+                                continue;
+                            }
+                            let overlap_start = if m_start > seg_start { m_start - seg_start } else { 0 };
+                            let overlap_end = if m_end < seg_end { m_end - seg_start } else { text.len() };
+                            let overlap_start = overlap_start.min(text.len());
+                            let overlap_end = overlap_end.min(text.len());
+
+                            if overlap_start > pos {
+                                let tf = syntect_style_to_format(&style, &font_id, ui);
+                                code_job.append(&text[pos..overlap_start], 0.0, tf);
+                            }
+                            if overlap_start < overlap_end {
+                                if is_current {
+                                    has_current = true;
+                                }
+                                let mut tf = syntect_style_to_format(&style, &font_id, ui);
+                                tf.background = if is_current {
+                                    Color32::from_rgb(255, 165, 0)
+                                } else {
+                                    Color32::from_rgb(255, 255, 0)
+                                };
+                                tf.color = Color32::BLACK;
+                                code_job.append(&text[overlap_start..overlap_end], 0.0, tf);
+                            }
+                            pos = overlap_end;
+                        }
+                        if pos < text.len() {
+                            let tf = syntect_style_to_format(&style, &font_id, ui);
+                            code_job.append(&text[pos..], 0.0, tf);
+                        }
+                    }
+
+                    char_offset = seg_end;
                 }
             }
+
+            // Suppress the unused variable warning
+            let _ = src_pos;
 
             code_job.wrap.max_width = ui.available_width();
             let response = ui.label(code_job);
@@ -188,6 +352,16 @@ fn render_code_block(
                 response.scroll_to_me(Some(egui::Align::Center));
             }
         });
+}
+
+fn syntect_style_to_format(style: &SyntectStyle, font_id: &FontId, _ui: &egui::Ui) -> TextFormat {
+    let fg = style.foreground;
+    TextFormat {
+        font_id: font_id.clone(),
+        color: Color32::from_rgb(fg.r, fg.g, fg.b),
+        line_height: Some(font_id.size * 1.35),
+        ..Default::default()
+    }
 }
 
 #[derive(Clone, Default)]
