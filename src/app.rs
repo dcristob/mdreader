@@ -15,6 +15,7 @@ pub struct MdReaderApp {
     pub theme: Theme,
     pub search: SearchState,
     pub show_search: bool,
+    pub search_focus_requested: bool,
     pub history: Vec<PathBuf>,
     pub history_pos: usize,
     pub file_watcher: Option<FileWatcher>,
@@ -34,6 +35,7 @@ impl Default for MdReaderApp {
             theme: Theme::default(),
             search: SearchState::default(),
             show_search: false,
+            search_focus_requested: false,
             history: Vec::new(),
             history_pos: 0,
             file_watcher: None,
@@ -55,6 +57,7 @@ impl MdReaderApp {
             theme: crate::config::load_theme(),
             search: SearchState::default(),
             show_search: false,
+            search_focus_requested: false,
             history: Vec::new(),
             history_pos: 0,
             file_watcher: None,
@@ -176,6 +179,9 @@ impl eframe::App for MdReaderApp {
 
         if ctx.input(|i| i.key_pressed(egui::Key::F)) && ctx.input(|i| i.modifiers.ctrl) {
             self.show_search = !self.show_search;
+            if self.show_search {
+                self.search_focus_requested = true;
+            }
         }
 
         self.theme.apply(ctx);
@@ -240,6 +246,11 @@ impl eframe::App for MdReaderApp {
                                         .desired_width(200.0)
                                         .margin(egui::vec2(8.0, 6.0)),
                                 );
+
+                                if self.search_focus_requested {
+                                    response.request_focus();
+                                    self.search_focus_requested = false;
+                                }
 
                                 if response.changed() {
                                     if let Some(content) = &self.content {
@@ -344,6 +355,7 @@ impl eframe::App for MdReaderApp {
                                     |ui| {
                                         if ui.button("🔍 Search").clicked() {
                                             self.show_search = true;
+                                            self.search_focus_requested = true;
                                         }
                                     },
                                 );
