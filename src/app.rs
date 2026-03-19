@@ -4,7 +4,7 @@ use crate::search::SearchState;
 use crate::theme::Theme;
 use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc::TryRecvError;
 
 pub struct MdReaderApp {
@@ -47,11 +47,6 @@ impl Default for MdReaderApp {
     }
 }
 
-fn is_mdx_file(path: &Path) -> bool {
-    path.extension()
-        .map(|ext| ext.eq_ignore_ascii_case("mdx"))
-        .unwrap_or(false)
-}
 
 impl MdReaderApp {
     pub fn new(file: Option<PathBuf>) -> Self {
@@ -121,13 +116,9 @@ impl MdReaderApp {
 
         crate::config::add_recent_file(&path);
 
-        match file::load_file(&path) {
+        match file::load_file_for_display(&path) {
             Ok(content) => {
-                self.content = Some(if is_mdx_file(&path) {
-                    file::strip_mdx_imports(&content)
-                } else {
-                    content
-                });
+                self.content = Some(content);
                 self.error = None;
             }
             Err(e) => {
@@ -144,13 +135,9 @@ impl MdReaderApp {
 
     fn load_file_without_history(&mut self, path: PathBuf) {
         self.current_file = Some(path.clone());
-        match file::load_file(&path) {
+        match file::load_file_for_display(&path) {
             Ok(content) => {
-                self.content = Some(if is_mdx_file(&path) {
-                    file::strip_mdx_imports(&content)
-                } else {
-                    content
-                });
+                self.content = Some(content);
                 self.error = None;
             }
             Err(e) => {
@@ -191,12 +178,8 @@ impl eframe::App for MdReaderApp {
             match watcher.receiver.try_recv() {
                 Ok(Ok(_event)) => {
                     if let Some(ref path) = self.current_file {
-                        if let Ok(content) = file::load_file(path) {
-                            self.content = Some(if is_mdx_file(path) {
-                                file::strip_mdx_imports(&content)
-                            } else {
-                                content
-                            });
+                        if let Ok(content) = file::load_file_for_display(path) {
+                            self.content = Some(content);
                         }
                     }
                 }

@@ -34,6 +34,18 @@ pub fn load_file(path: &Path) -> Result<String> {
         .map_err(|e| anyhow::anyhow!("Failed to read file: {}", e))
 }
 
+pub fn load_file_for_display(path: &std::path::Path) -> Result<String> {
+    let content = load_file(path)?;
+    if path.extension()
+        .map(|ext| ext.eq_ignore_ascii_case("mdx"))
+        .unwrap_or(false)
+    {
+        Ok(strip_mdx_imports(&content))
+    } else {
+        Ok(content)
+    }
+}
+
 pub fn strip_mdx_imports(content: &str) -> String {
     let mut result = content
         .lines()
