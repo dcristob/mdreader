@@ -356,7 +356,7 @@ impl eframe::App for MdReaderApp {
                                 // File operations
                                 if ui.button("📂 Open").clicked() {
                                     if let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("Markdown", &["md", "markdown"])
+                                        .add_filter("Markdown", &["md", "markdown", "mdx"])
                                         .add_filter("All Files", &["*"])
                                         .pick_file()
                                     {

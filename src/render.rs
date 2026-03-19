@@ -222,7 +222,7 @@ fn resolve_link(url: &str, base_dir: Option<&std::path::Path>) -> LinkAction {
     if let Some(base) = base_dir {
         let clean_url = url.split('#').next().unwrap_or(url);
         let target = base.join(clean_url);
-        if clean_url.ends_with(".md") || clean_url.ends_with(".markdown") {
+        if clean_url.ends_with(".md") || clean_url.ends_with(".markdown") || clean_url.ends_with(".mdx") {
             return LinkAction::NavigateFile(target);
         }
     }
