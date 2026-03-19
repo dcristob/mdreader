@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Markdown Reader
+Comment=A fast, lightweight markdown viewer
+Exec=mdreader %f
+Icon=mdreader
+Terminal=false
+Type=Application
+Categories=Utility;TextEditor;
+MimeType=text/markdown;text/x-markdown;text/x-mdx;
