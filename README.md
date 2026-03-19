@@ -61,6 +61,8 @@ To install system-wide with desktop entry (open `.md` and `.mdx` files by double
 ```bash
 cp target/release/mdreader ~/.local/bin/mdreader
 cp mdreader.desktop ~/.local/share/applications/mdreader.desktop
+cp markdown.png ~/.local/share/icons/mdreader.png
+xdg-mime default mdreader.desktop text/markdown text/x-markdown text/x-mdx
 ```
 
 ## Usage
