@@ -53,5 +53,5 @@ No new dependencies. Four focused changes:
 ## Trade-offs
 
 - **Pro:** Minimal code changes (~15 lines), no new deps, easy to maintain
-- **Con:** Rare edge cases (JSX expressions like `{props.foo}`) may appear as text; multiline imports won't be stripped
+- **Con:** Rare edge cases (JSX expressions like `{props.foo}`) may appear as text; multiline imports won't be stripped; prose lines starting with `import ` or `export ` would be incorrectly stripped (acceptable given MDX docs content)
 - **Upgrade path:** Can add regex-based or tag-stripping pre-processing later if needed
