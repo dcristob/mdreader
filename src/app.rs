@@ -4,7 +4,7 @@ use crate::search::SearchState;
 use crate::theme::Theme;
 use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::TryRecvError;
 
 pub struct MdReaderApp {
@@ -45,6 +45,12 @@ impl Default for MdReaderApp {
             scroll_to_match: false,
         }
     }
+}
+
+fn is_mdx_file(path: &Path) -> bool {
+    path.extension()
+        .map(|ext| ext.eq_ignore_ascii_case("mdx"))
+        .unwrap_or(false)
 }
 
 impl MdReaderApp {
@@ -117,7 +123,11 @@ impl MdReaderApp {
 
         match file::load_file(&path) {
             Ok(content) => {
-                self.content = Some(content);
+                self.content = Some(if is_mdx_file(&path) {
+                    file::strip_mdx_imports(&content)
+                } else {
+                    content
+                });
                 self.error = None;
             }
             Err(e) => {
@@ -136,7 +146,11 @@ impl MdReaderApp {
         self.current_file = Some(path.clone());
         match file::load_file(&path) {
             Ok(content) => {
-                self.content = Some(content);
+                self.content = Some(if is_mdx_file(&path) {
+                    file::strip_mdx_imports(&content)
+                } else {
+                    content
+                });
                 self.error = None;
             }
             Err(e) => {
@@ -178,7 +192,11 @@ impl eframe::App for MdReaderApp {
                 Ok(Ok(_event)) => {
                     if let Some(ref path) = self.current_file {
                         if let Ok(content) = file::load_file(path) {
-                            self.content = Some(content);
+                            self.content = Some(if is_mdx_file(path) {
+                                file::strip_mdx_imports(&content)
+                            } else {
+                                content
+                            });
                         }
                     }
                 }
