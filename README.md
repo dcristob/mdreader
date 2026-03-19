@@ -5,7 +5,7 @@
 <h1 align="center">mdreader</h1>
 
 <p align="center">
-  A fast, lightweight desktop markdown viewer built with Rust and egui.
+  A fast, lightweight desktop markdown and MDX viewer built with Rust and egui.
 </p>
 
 <p align="center">
@@ -23,6 +23,7 @@
 - **CLI Support** — Open files from command line: `mdreader file.md`
 - **File Picker** — GUI file dialog when no CLI argument provided
 - **Full Markdown Support** — Headers, lists, code blocks, links, tables, blockquotes
+- **MDX Support** — Opens `.mdx` files, stripping import/export statements for clean rendering
 - **Syntax Highlighting** — Code blocks with language detection
 - **Clickable Links** — External URLs open in browser, internal links navigate
 - **Search** — `Ctrl+F` to search within document with match highlighting
@@ -55,17 +56,21 @@ The binary will be at `./target/release/mdreader`.
 
 ### Linux desktop integration
 
-To install system-wide with desktop entry (open `.md` files by double-click):
+To install system-wide with desktop entry (open `.md` and `.mdx` files by double-click):
 
 ```bash
 cp target/release/mdreader ~/.local/bin/mdreader
+cp mdreader.desktop ~/.local/share/applications/mdreader.desktop
 ```
 
 ## Usage
 
 ```bash
-# Open a specific file
+# Open a markdown file
 mdreader document.md
+
+# Open an MDX file
+mdreader page.mdx
 
 # Open without file (shows file picker)
 mdreader
