@@ -35,14 +35,18 @@ pub fn load_file(path: &Path) -> Result<String> {
 }
 
 pub fn strip_mdx_imports(content: &str) -> String {
-    content
+    let mut result = content
         .lines()
         .filter(|line| {
             let trimmed = line.trim_start();
             !trimmed.starts_with("import ") && !trimmed.starts_with("export ")
         })
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n");
+    if content.ends_with('\n') {
+        result.push('\n');
+    }
+    result
 }
 
 #[cfg(test)]
@@ -81,6 +85,13 @@ mod tests {
     fn test_strip_mdx_imports_preserves_prose_with_import_word() {
         // "import" mid-sentence should NOT be stripped
         let input = "# Title\n\nYou can import data from the API.";
+        let result = strip_mdx_imports(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_strip_mdx_imports_preserves_trailing_newline() {
+        let input = "# Hello\n\nSome text\n";
         let result = strip_mdx_imports(input);
         assert_eq!(result, input);
     }
