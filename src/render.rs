@@ -2,7 +2,7 @@ use crate::search::SearchState;
 use eframe::egui;
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, FontFamily, FontId, Stroke};
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use std::ops::Range;
 use std::sync::OnceLock;
 use syntect::highlighting::{ThemeSet, Style as SyntectStyle};
@@ -17,6 +17,16 @@ fn syntax_set() -> &'static SyntaxSet {
 fn theme_set() -> &'static ThemeSet {
     static TS: OnceLock<ThemeSet> = OnceLock::new();
     TS.get_or_init(ThemeSet::load_defaults)
+}
+
+/// Returns true if the markdown contains at least one GFM table.
+/// Used to route table-containing docs to our custom renderer because
+/// egui_commonmark's Grid-based table layout doesn't wrap cell text.
+pub fn contains_table(content: &str) -> bool {
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_TABLES);
+    Parser::new_ext(content, options)
+        .any(|event| matches!(event, Event::Start(Tag::Table(_))))
 }
 
 /// Link click action returned from rendering, to be handled by the caller.
@@ -40,7 +50,11 @@ pub fn render_highlighted_markdown(
     base_dir: Option<&std::path::Path>,
 ) -> Option<LinkAction> {
     let is_dark = ui.visuals().dark_mode;
-    let parser = Parser::new(content).into_offset_iter();
+    let mut options = Options::empty();
+    options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_TASKLISTS);
+    let parser = Parser::new_ext(content, options).into_offset_iter();
 
     let mut job = LayoutJob::default();
     let mut fmt = FormatState::default();
@@ -53,9 +67,96 @@ pub fn render_highlighted_markdown(
     let mut job_has_current_match = false;
     let mut current_link_url: Option<String> = None;
     let mut link_action: Option<LinkAction> = None;
+    let mut table_state: Option<TableState> = None;
+    let mut table_counter: usize = 0;
 
     for (event, range) in parser {
+        // Route every event inside a table to the table accumulator so
+        // cell text doesn't bleed into the main flow and so the table
+        // structure is preserved for the deferred grid render.
+        if let Some(ts) = table_state.as_mut() {
+            match event {
+                Event::Start(Tag::TableHead) => ts.in_header = true,
+                Event::End(TagEnd::TableHead) => ts.in_header = false,
+                Event::Start(Tag::TableRow) | Event::Start(Tag::TableCell) => {}
+                Event::End(TagEnd::TableRow) => {
+                    let row = std::mem::take(&mut ts.current_row);
+                    ts.rows.push(row);
+                }
+                Event::End(TagEnd::TableCell) => {
+                    let cell = std::mem::take(&mut ts.current_cell);
+                    if ts.in_header {
+                        ts.header.push(cell);
+                    } else {
+                        ts.current_row.push(cell);
+                    }
+                }
+                Event::End(TagEnd::Table) => {
+                    let finished = table_state.take().unwrap();
+                    table_counter += 1;
+                    render_table(ui, finished, table_counter, scroll_to_match);
+                    ui.add_space(8.0);
+                }
+                Event::Start(Tag::Strong) => fmt.bold = true,
+                Event::End(TagEnd::Strong) => fmt.bold = false,
+                Event::Start(Tag::Emphasis) => fmt.italic = true,
+                Event::End(TagEnd::Emphasis) => fmt.italic = false,
+                Event::Start(Tag::Strikethrough) => fmt.strikethrough = true,
+                Event::End(TagEnd::Strikethrough) => fmt.strikethrough = false,
+                Event::Text(text) => {
+                    let mut cell_fmt = fmt.clone();
+                    if ts.in_header {
+                        cell_fmt.bold = true;
+                    }
+                    if append_highlighted_text(
+                        &mut ts.current_cell,
+                        &text,
+                        range,
+                        content,
+                        search,
+                        &cell_fmt,
+                        ui,
+                    ) {
+                        ts.has_current_match = true;
+                    }
+                }
+                Event::Code(code) => {
+                    let mut code_fmt = fmt.clone();
+                    code_fmt.code = true;
+                    if ts.in_header {
+                        code_fmt.bold = true;
+                    }
+                    if append_highlighted_text(
+                        &mut ts.current_cell,
+                        &code,
+                        range,
+                        content,
+                        search,
+                        &code_fmt,
+                        ui,
+                    ) {
+                        ts.has_current_match = true;
+                    }
+                }
+                Event::SoftBreak => {
+                    let tf = fmt.to_text_format(ui);
+                    ts.current_cell.append(" ", 0.0, tf);
+                }
+                Event::HardBreak => {
+                    let tf = fmt.to_text_format(ui);
+                    ts.current_cell.append("\n", 0.0, tf);
+                }
+                _ => {}
+            }
+            continue;
+        }
+
         match event {
+            Event::Start(Tag::Table(_)) => {
+                flush_job(ui, &mut job, scroll_to_match && job_has_current_match);
+                job_has_current_match = false;
+                table_state = Some(TableState::default());
+            }
             // Block-level elements
             Event::Start(Tag::Heading { level, .. }) => {
                 flush_job(ui, &mut job, scroll_to_match && job_has_current_match);
@@ -433,6 +534,115 @@ impl FormatState {
         };
         fmt.color = Color32::BLACK;
         fmt
+    }
+}
+
+#[derive(Default)]
+struct TableState {
+    in_header: bool,
+    header: Vec<LayoutJob>,
+    rows: Vec<Vec<LayoutJob>>,
+    current_row: Vec<LayoutJob>,
+    current_cell: LayoutJob,
+    has_current_match: bool,
+}
+
+fn render_table(
+    ui: &mut egui::Ui,
+    state: TableState,
+    table_id: usize,
+    scroll_to_match: bool,
+) {
+    let TableState {
+        header,
+        rows,
+        has_current_match,
+        ..
+    } = state;
+
+    if header.is_empty() && rows.is_empty() {
+        return;
+    }
+
+    let n_cols = header
+        .len()
+        .max(rows.iter().map(|r| r.len()).max().unwrap_or(0));
+    if n_cols == 0 {
+        return;
+    }
+
+    // Estimate horizontal overhead from Frame::group padding plus
+    // inter-column spacing, so cells share the remaining width evenly.
+    let total_width = ui.available_width();
+    let item_spacing = ui.style().spacing.item_spacing.x;
+    let frame_overhead = 24.0;
+    let inter_col = item_spacing * (n_cols.saturating_sub(1) as f32);
+    let usable = (total_width - frame_overhead - inter_col).max(120.0);
+    let col_width = (usable / n_cols as f32).max(60.0);
+
+    // Build the cells without using egui::Grid: Grid sets the ambient
+    // wrap_mode to Extend (horizontal layout), which makes Label override
+    // any per-job wrap.max_width with f32::INFINITY. Instead, render each
+    // row as a horizontal strip of fixed-width top-down sub-uis, where
+    // the inner vertical layout's default wrap_mode is Wrap.
+    let _ = table_id; // unused now that Grid is gone
+    let stripe_color = ui.visuals().faint_bg_color;
+
+    let render_cell = |ui: &mut egui::Ui, cell: LayoutJob, header: bool| {
+        ui.allocate_ui_with_layout(
+            egui::vec2(col_width, 0.0),
+            egui::Layout::top_down(egui::Align::LEFT),
+            |ui| {
+                ui.set_min_width(col_width);
+                ui.set_max_width(col_width);
+                let mut label = egui::Label::new(cell).wrap();
+                if header {
+                    label = label.selectable(true);
+                }
+                ui.add(label);
+            },
+        );
+    };
+
+    let frame_response = egui::Frame::group(ui.style()).show(ui, |ui| {
+        // Header row
+        ui.horizontal_top(|ui| {
+            let n_header = header.len();
+            for cell in header {
+                render_cell(ui, cell, true);
+            }
+            for _ in n_header..n_cols {
+                render_cell(ui, LayoutJob::default(), true);
+            }
+        });
+        ui.add_space(2.0);
+        ui.separator();
+
+        // Data rows with manual zebra striping
+        for (idx, row) in rows.into_iter().enumerate() {
+            let row_frame = if idx % 2 == 1 {
+                egui::Frame::NONE.fill(stripe_color)
+            } else {
+                egui::Frame::NONE
+            };
+            row_frame.show(ui, |ui| {
+                ui.horizontal_top(|ui| {
+                    let n_cells = row.len();
+                    for cell in row {
+                        render_cell(ui, cell, false);
+                    }
+                    for _ in n_cells..n_cols {
+                        render_cell(ui, LayoutJob::default(), false);
+                    }
+                });
+            });
+        }
+    });
+
+    if scroll_to_match && has_current_match {
+        frame_response
+            .response
+            .scroll_to_me(Some(egui::Align::Center));
     }
 }
 

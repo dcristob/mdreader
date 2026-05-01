@@ -418,7 +418,13 @@ impl eframe::App for MdReaderApp {
 
                 scroll_area.show(ui, |ui: &mut egui::Ui| {
                     let base_dir = self.current_file.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf()));
-                    if self.show_search && self.search.has_matches() {
+                    // egui_commonmark renders tables with a Grid whose cells
+                    // never wrap, so route any table-containing document
+                    // through our custom renderer (which sets a per-cell
+                    // max_width) — search highlighting still uses the same path.
+                    let use_custom = (self.show_search && self.search.has_matches())
+                        || crate::render::contains_table(content);
+                    if use_custom {
                         let action = crate::render::render_highlighted_markdown(
                             ui,
                             content,
