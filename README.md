@@ -34,6 +34,16 @@
 
 ## Installation
 
+### Linux (one-liner)
+
+Install the latest release into `~/.local` with desktop entry, icon, and MIME associations — no clone required:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dcristob/mdreader/main/install_linux.sh | bash
+```
+
+Overrides: `MDREADER_VERSION=v0.2.4` to pin a release, `MDREADER_PREFIX=/usr/local` to change the install prefix.
+
 ### From releases
 
 Download the latest binary for your platform from the [Releases](https://github.com/dcristob/mdreader/releases) page.
