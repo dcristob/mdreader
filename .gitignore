@@ -1,5 +1,7 @@
 /target
 /docs/plans
+/docs/superpowers
+CLAUDE.md
 *.swp
 *.swo
 *~
